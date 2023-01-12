@@ -1,12 +1,12 @@
-// Adapted from https://github.com/donskytech/esp-projects/tree/master/esp8266-nodemcu-webserver-ajax
+// This sketch was originally adapted from: https://github.com/donskytech/esp-projects/tree/master/esp8266-nodemcu-webserver-ajax
 // Tutorial here: https://www.hackster.io/donskytech/nodemcu-esp8266-ajax-enabled-web-server-8b0744
 // Using forked NTP library: https://github.com/taranais/NTPClient
 // Install this via Sketch > Include library > Add .ZIP library.. and delete the folder for the original library if you already had it.
 // If asked to auto update libraries, don't agree or the source library will be reinstalled and break ths sketch.
 
 // This sketch controls an automated backyard system. As is, it is able to cotrol four sprinklers, an automatic pet feeder, an automatic pet drinking bowl, switch on/off an ip cam, and play a tune via a buzzer after feeding.
-// It delivers food three times a day, with the ater being flushed/refilled immediately after. There is also an 'Food+' button to drop additional food when pressed.
-// The whole project is covered in this YouTube video: 
+// It delivers food three times a day, with the water being flushed/refilled immediately after each feed. There is also an 'Food+' button to drop additional food when pressed.
+// The whole project is covered in this YouTube video: https://youtu.be/Hz5E83ftKio
 
 // Disclaimer: Use this code at your own risk. I have been using it reliably for some time but there are no guarantees, especially if
 // you make changes. Do NOT let this be the only thing in place to keep your pets alive. Please ensure you have a backup in place if
