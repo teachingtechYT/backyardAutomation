@@ -8,6 +8,11 @@
 // It delivers food three times a day, with the ater being flushed/refilled immediately after. There is also an 'Food+' button to drop additional food when pressed.
 // The whole project is covered in this YouTube video: 
 
+// Disclaimer: Use this code at your own risk. I have been using it reliably for some time but there are no guarantees, especially if
+// you make changes. Do NOT let this be the only thing in place to keep your pets alive. Please ensure you have a backup in place if
+// something fails and a way of knowing that the backup is needed. I accept no responsibilty for any adverse outcomes that stem from
+// the use of this code.
+
 #include <ESP8266WiFi.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
