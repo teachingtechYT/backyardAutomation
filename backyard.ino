@@ -1,11 +1,9 @@
 // This sketch was originally adapted from: https://github.com/donskytech/esp-projects/tree/master/esp8266-nodemcu-webserver-ajax
 // Tutorial here: https://www.hackster.io/donskytech/nodemcu-esp8266-ajax-enabled-web-server-8b0744
-// Using forked NTP library: https://github.com/taranais/NTPClient
-// Install this via Sketch > Include library > Add .ZIP library.. and delete the folder for the original library if you already had it.
-// If asked to auto update libraries, don't agree or the source library will be reinstalled and break ths sketch.
+// Forked NTP library no longer required.
 
 // This sketch controls an automated backyard system. As is, it is able to cotrol four sprinklers, an automatic pet feeder, an automatic pet drinking bowl, switch on/off an ip cam, and play a tune via a buzzer after feeding.
-// It delivers food three times a day, with the water being flushed/refilled immediately after each feed. There is also an 'Food+' button to drop additional food when pressed.
+// It delivers food four times a day, with the water being flushed/refilled each hour at a set time. There is also an 'Food+' button to drop additional food when pressed.
 // The whole project is covered in this YouTube video: https://youtu.be/Hz5E83ftKio
 
 // Disclaimer: Use this code at your own risk. I have been using it reliably for some time but there are no guarantees, especially if
@@ -21,6 +19,7 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <ESP8266RTTTLPlus.h>
+#include <TimeLib.h>
 
 /********** PLEASE CHANGE THIS *************************/
 #ifndef STASSID
@@ -68,14 +67,16 @@ bool feeding = false; // boolean variable to keep track of whether feeding is in
 bool drinking = false; // boolean variable to keep track of whether water refill is in progress
 
 // Scheduled meal times, in 24hr format
-int breakfast[] = {5,30}; // 5:30 am
-int lunch[] = {12,0}; // 12 pm (midday)
-int dinner[] = {16,0}; // 4 pm
-int feedPumps[] = {5,4,5}; // How much food to deliver for breakfast, lunch and dinner.
-const int feedTime = 1500; // My feeder drops food every 1.5 seconds. Adjust as ncessary for yours.
+int breakfast[] = {6,00}; // 6:00 am
+int brunch[] = {10,00}; // 10:00 am
+int lunch[] = {13,00}; // 1:00 pm
+int dinner[] = {16,30}; // 4:30 pm
+int feedPumps[] = {4,3,3,4}; // How much food to deliver for breakfast, brunch, lunch and dinner. If you wan to leave out a meal, set its value to zero.
+const int feedTime = 1500; // My feeder drops food every 1.5 seconds. Adjust as necessary for yours.
+int watering[] = {6,20,5}; // Times for drink refill: Start hour, end hour, minutes past the hour. Will happen every hour on and between those listed. eg 6 am and 8pm. Third number is minutes past the hour to activate water. Eg. 05. Pick a time different to your feeding to avoid clashes.
 const int drinkTime = 2000; // 2 seconds is a good amount of time to refill/flush my water system. Adjust as necessary for yours.
 
-String boot; // String to store information about when the system was first turned on.
+time_t boot; // String to store information about when the system was first turned on. String
 int bootDay; // Stores day of the week value when first turned on.
 
 void setup() {
@@ -158,19 +159,21 @@ void setup() {
   server.begin(); // Server actually starts
   timeClient.begin(); // Connect to internet and get time
   timeClient.update(); // Update time
-  boot = timeClient.getFormattedDate(); // Store date which boot up happened
-  bootDay = timeClient.getDay(); // Store day which boot up happened
+  boot = timeClient.getEpochTime(); // Store date which boot up happened
   // set initial time of day for meals
   int bootTime = (timeClient.getHours()*100) + (timeClient.getMinutes()); // Convert boot time to 24hr format integer. Eg. 4:56pm becomes 1656
   int breakfastTime = (breakfast[0]*100) + breakfast[1]; // Convert breakfast time to 24hr format integer.
+  int brunchTime = (brunch[0]*100) + brunch[1]; // Convert brunch time to 24hr format integer.
   int lunchTime = (lunch[0]*100) + lunch[1];  // Convert lunch time to 24hr format integer.
   int dinnerTime = (dinner[0]*100) + dinner[1]; // Convert dinner time to 24hr format integer.
   // Compare the boot up time to the scheduled feeding times to determine which meal shoud be next. The meals variable will be set to keep track of this.
   if(bootTime > dinnerTime) { //after dinner, next meal is breakfast, reset to 0 for morning
     meals = 0;
   } else if(bootTime > lunchTime){ // after lunch, next meal is dinner
-    meals = 2; 
-  } else if (bootTime > breakfastTime){ // after breakfast, next meal is lunch
+    meals = 3;
+   } else if(bootTime > brunchTime){ // after brunch, next meal is lunch
+    meals = 2;  
+  } else if (bootTime > breakfastTime){ // after breakfast, next meal is brunch
     meals = 1;
   } else { // early morning, next meal is breakfast
     meals = 0;
@@ -190,12 +193,17 @@ void loop() {
         feed();
       }
     }
-    if(meals == 1) { // pre lunch
+    if(meals == 1) { // pre brunch
+      if(timeClient.getHours() == brunch[0] && timeClient.getMinutes() == brunch[1]) {
+        feed();
+      }
+    }
+    if(meals == 2) { // pre lunch
       if(timeClient.getHours() == lunch[0] && timeClient.getMinutes() == lunch[1]) {
         feed();
       }
     }
-    if(meals == 2) { // pre dinner
+    if(meals == 3) { // pre dinner
       if(timeClient.getHours() == dinner[0] && timeClient.getMinutes() == dinner[1]) {
         feed();
       }
@@ -206,6 +214,12 @@ void loop() {
       digitalWrite(output6, HIGH); // Turn off relay to drinker solenoid.
       drinking = false; // set drinking variable as false for main loop.
     }
+  } else { // Check for regular water refill time
+    if((timeClient.getHours() >= watering[0]) && (timeClient.getHours() <= watering[1]) && (timeClient.getMinutes() == watering[2]) && (timeClient.getSeconds() == 0)){ // 5 minutes past the hour between 6am and 8pm
+      digitalWrite(output6, LOW); // Trigger relay to drinker solenoid
+      finishMillisW = millis()+drinkTime; // Set how long water will come out using variables at the top. In my case 2000 ms.
+      drinking = true; // set drinking variable as true for main loop to handle.
+    }
   }
   e8rtp::loop(); // Command required in loop for the buzzer to be able to play without delaying other functions.
 }
@@ -215,17 +229,23 @@ void feed(){ // Function to start feeding
   if(meals == 0){ // breakfast
     finishMillis = millis()+(feedTime*feedPumps[0]); // Set feeding duration as per variables higher up. Eg. 1500 ms * 4 pumps = 6 seconds of food delivery
   }
-  if(meals == 1){ // lunch
+  if(meals == 1){ // brunch
     finishMillis = millis()+(feedTime*feedPumps[1]);
   }
-  if(meals == 2){ // dinner
+  if(meals == 2){ // lunch
     finishMillis = millis()+(feedTime*feedPumps[2]);
+  }
+  if(meals == 3){ // dinner
+    finishMillis = millis()+(feedTime*feedPumps[3]);
   }
   feeding = true; // set feeding variable as true for main loop to handle.
 }
 
 void manualFeed(){ // Function to handle if the user presses the 'Food +' button for manual food top up.
   digitalWrite(output5, LOW); // Trigger relay to feeder motor
+  if(oldMeals == 9){ // Check if a manual feed is currently underway
+    return; // Exit if it is to avoid meals counter being stuck on 9
+  }
   oldMeals = meals; // Temporarily store the next scheduled meal in the oldMeals variable.
   meals = 9; // Bogus meals value to 9 to indicate a manual, unscheduled feed.
   finishMillis = millis()+feedTime; // Set how long feed will come out using variables above. In my case 1500 ms.
@@ -237,11 +257,8 @@ void stopFeed() { // Function to handle when feeding is over
   feeding = false; // set feeding variable as false for main loop.
   if(meals == 9){ // If this was a manual, unscheduled feed, restore the next scheduled meal.
     meals = oldMeals;
-  } else { // Scheduled feed, initiate water refill straight after
-    digitalWrite(output6, LOW); // Trigger relay to drinker solenoid
-    finishMillisW = millis()+drinkTime; // Set how long water will come out using variables above. In my case 2000 ms.
-    drinking = true; // set drinking variable as true for main loop to handle.
-    if(meals == 2){ // Advance the meals counter by one, unless it's the end of the day, in which reset it to zero for the next day.
+  } else { // Scheduled feed    
+    if(meals == 3){ // Advance the meals counter by one, unless it's the end of the day, in which reset it to zero for the next day.
       meals = 0;
     } else {
       meals++;
@@ -344,27 +361,27 @@ void updateVoltage() { // Function to handle when the user presses the voltage r
   server.send(200, "text/plain", message); // Send back to the webpage.
 }
 
-String dotw(int day) { //Function to convert the day of the week (integer 0-6) from the NTP library to a human friendly string: Monday, Tuesday, Wednesday, etc.
+String dotw(int day) { //Function to convert the day of the week (integer 1-7) from the Time library to a human friendly string: Monday, Tuesday, Wednesday, etc.
   switch(day){
-    case 0:
+    case 1:
       return "Sunday";
       break;
-    case 1:
+    case 2:
       return "Monday";
       break;
-    case 2:
+    case 3:
       return "Tuesday";
       break;
-    case 3:
+    case 4:
       return "Wednesday";
       break;
-    case 4:
+    case 5:
       return "Thursday";
       break;
-    case 5:
+    case 6:
       return "Friday";
       break;
-    case 6:
+    case 7:
       return "Saturday";
       break;
     default:
@@ -373,30 +390,77 @@ String dotw(int day) { //Function to convert the day of the week (integer 0-6) f
   }    
 }
 
+String formatDate(int t){ //Function to take an epoch seconds value and convert it into a 24H formatted date string: dotw DD/MM/YYYY HH:MM:SS
+  String message = String(""); // Start empty string
+  message.concat(dotw(weekday(t))); // Create text day of the week
+  message.concat(" ");
+  message.concat(day(t)); 
+  message.concat("/");
+  message.concat(month(t));
+  message.concat("/");
+  message.concat(year(t));
+  message.concat(" ");
+  message.concat(hour(t));
+  message.concat(":");
+  if(minute(t) < 10){
+    message.concat("0"); // Pada leading zero if needed
+  }
+  message.concat(minute(t));
+  message.concat(":");
+  if(second(t) < 10){
+    message.concat("0");
+  }
+  message.concat(second(t));
+  return message;
+}
+
 String status() { //Function to prepare a status string for the base of the page. Returns the boot day and time, the current date and time of the request, and the next scheduled meal.
   String message = String("<p>Online since ");
-  message.concat(dotw(bootDay));
-  message.concat(" ");
-  boot.replace("T"," ");
-  boot.replace("Z","");
-  message.concat(boot);
+  message.concat(formatDate(boot)); // Format date and time string for when the system was booted
   message.concat(".</p><p>Last updated ");
-  int day = timeClient.getDay();
-  message.concat(dotw(day));
-  message.concat(" ");
-  String date = timeClient.getFormattedDate();
-  date.replace("T", " ");
-  date.replace("Z", "");
-  message.concat(date);
+  time_t t = timeClient.getEpochTime(); // Capture curren time in seconds since epoch
+  message.concat(formatDate(t)); // Format date and time string for when the system was booted
   message.concat(".</p><p>");
   message.concat("The next meal is ");
   if(meals == 0){
-    message.concat("breakfast.</p>");
+    message.concat("breakfast at ");
+    message.concat(breakfast[0]);
+    message.concat(":");
+    if(breakfast[1] < 10){
+      message.concat("0");
+    }
+    message.concat(breakfast[1]);
   } else if(meals ==1){
-    message.concat("lunch.</p>");
-  } else if(meals == 2){
-    message.concat("dinner.</p>");
+    message.concat("brunch at ");
+    message.concat(brunch[0]);
+    message.concat(":");
+    if(brunch[1] < 10){
+      message.concat("0");
+    }
+    message.concat(brunch[1]);
+  } else if(meals ==2){
+    message.concat("lunch at ");
+    message.concat(lunch[0]);
+    message.concat(":");
+    if(lunch[1] < 10){
+      message.concat("0");
+    }
+    message.concat(lunch[1]);
+  } else if(meals == 3){
+    message.concat("dinner at ");
+    message.concat(dinner[0]);
+    message.concat(":");
+    if(dinner[1] < 10){
+      message.concat("0");
+    }
+    message.concat(dinner[1]);
+  } else {
+    message.concat("error. Current meal is: ");
+    message.concat(meals);
   }
+  message.concat(" for ");
+  message.concat(feedPumps[meals]);
+  message.concat(" pumps.</p>");
   return message;
 }
 
@@ -585,7 +649,7 @@ String prepareHTML() { // Function to serve the html for the base webpage. Used 
 // Manual buzzer tune play button
                 "   <div id='fotc'>P</div>"
 // Camera iframe. Insert your own camera URL here as the src or comment out the line if you are not using one.
-                "   <iframe type='text/html' frameborder='0' src=''></iframe>\n"
+                "   <iframe type='text/html' frameborder='0' src='' allowfullscreen></iframe>\n"
                 "   <div class=\"container\">\n"
                 "     <div class=\"hero\">\n"
                 "     <div class='rower'>\n"
